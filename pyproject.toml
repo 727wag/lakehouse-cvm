@@ -1,0 +1,16 @@
+[project]
+name = "lakehouse-cvm"
+version = "0.1.0"
+description = "Lakehouse na AWS com dados públicos da CVM: Lambda, Glue PySpark, Iceberg, Athena, Step Functions, Terraform e Datadog."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]

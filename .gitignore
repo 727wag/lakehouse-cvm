@@ -1,0 +1,19 @@
+# Terraform: estado e variáveis locais nunca vão para o Git
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+infra/build/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Segredos
+.env
+*.pem

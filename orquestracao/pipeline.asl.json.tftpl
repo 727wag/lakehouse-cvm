@@ -1,0 +1,97 @@
+{
+  "Comment": "Lakehouse CVM: ingestão (Lambda) -> SOT (Glue PySpark) -> SPEC (Athena) -> qualidade",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "IngestaoSOR",
+  "States": {
+    "IngestaoSOR": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${lambda_ingestao}",
+        "Payload.$": "$"
+      },
+      "ResultSelector": { "anos.$": "$.Payload.anos" },
+      "ResultPath": "$.ingestao",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException", "Lambda.SdkClientException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.erro", "Next": "AvisaFalha" }],
+      "Next": "TransformaSOT"
+    },
+    "TransformaSOT": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": { "JobName": "${glue_job}" },
+      "ResultPath": null,
+      "Retry": [{ "ErrorEquals": ["States.ALL"], "IntervalSeconds": 120, "MaxAttempts": 1 }],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.erro", "Next": "AvisaFalha" }],
+      "Next": "CriaTabelaSPEC"
+    },
+    "CriaTabelaSPEC": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": { "QueryString": ${sql_cria_spec}, "WorkGroup": "${workgroup}" },
+      "ResultPath": null,
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.erro", "Next": "AvisaFalha" }],
+      "Next": "AtualizaSPEC"
+    },
+    "AtualizaSPEC": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": { "QueryString": ${sql_merge_spec}, "WorkGroup": "${workgroup}" },
+      "ResultPath": null,
+      "Retry": [{ "ErrorEquals": ["States.ALL"], "IntervalSeconds": 60, "MaxAttempts": 1 }],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.erro", "Next": "AvisaFalha" }],
+      "Next": "ChecaQualidade"
+    },
+    "ChecaQualidade": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+      "Parameters": { "QueryString": ${sql_qualidade}, "WorkGroup": "${workgroup}" },
+      "ResultPath": "$.qualidade",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.erro", "Next": "AvisaFalha" }],
+      "Next": "LeQualidade"
+    },
+    "LeQualidade": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::athena:getQueryResults",
+      "Parameters": { "QueryExecutionId.$": "$.qualidade.QueryExecution.QueryExecutionId" },
+      "ResultSelector": { "status.$": "$.ResultSet.Rows[1].Data[0].VarCharValue" },
+      "ResultPath": "$.qualidade",
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "ResultPath": "$.erro", "Next": "AvisaFalha" }],
+      "Next": "QualidadeOK"
+    },
+    "QualidadeOK": {
+      "Type": "Choice",
+      "Choices": [{ "Variable": "$.qualidade.status", "StringEquals": "OK", "Next": "Sucesso" }],
+      "Default": "FalhaQualidade"
+    },
+    "FalhaQualidade": {
+      "Type": "Pass",
+      "Parameters": {
+        "Error": "QualidadeDados",
+        "Cause.$": "$.qualidade.status"
+      },
+      "ResultPath": "$.erro",
+      "Next": "AvisaFalha"
+    },
+    "Sucesso": { "Type": "Succeed" },
+    "AvisaFalha": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${sns_topico}",
+        "Subject": "Lakehouse CVM: pipeline falhou",
+        "Message.$": "States.JsonToString($.erro)"
+      },
+      "ResultPath": null,
+      "Next": "Falhou"
+    },
+    "Falhou": { "Type": "Fail", "Error": "PipelineFalhou", "Cause": "Veja o e-mail de alerta e o histórico da execução." }
+  }
+}
