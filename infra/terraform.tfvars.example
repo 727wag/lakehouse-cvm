@@ -1,0 +1,8 @@
+# Copie para terraform.tfvars (que fica fora do Git) e ajuste.
+email_alertas        = "seu-email@exemplo.com"
+orcamento_mensal_usd = 5
+
+# Site do Datadog: US1 = https://api.datadoghq.com/  |  US5 = https://api.us5.datadoghq.com/
+datadog_api_url    = "https://api.datadoghq.com/"
+datadog_habilitado = true
+datadog_notificar  = "@seu-email@exemplo.com"
