@@ -35,7 +35,7 @@ USING (
     SELECT cnpj_cia, dt_refer, max(vl_conta) AS valor
     FROM base
     WHERE demonstrativo = 'DRE_con'
-      AND lower(trim(ds_conta)) = 'lucro ou prejuízo líquido consolidado do período'
+      AND lower(trim(ds_conta)) IN ('lucro/prejuízo consolidado do período', 'lucro ou prejuízo líquido consolidado do período')
       AND date_diff('month', dt_ini_exerc, dt_fim_exerc) < 3
     GROUP BY cnpj_cia, dt_refer
   )
