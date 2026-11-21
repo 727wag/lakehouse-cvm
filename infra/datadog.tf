@@ -35,9 +35,9 @@ resource "datadog_monitor" "pipeline_falhou" {
 # o dashboard está desatualizado mesmo sem nenhum erro aparente.
 resource "datadog_monitor" "pipeline_sem_sucesso" {
   count   = local.dd_count
-  name    = "[${var.projeto}] Nenhuma execução com sucesso em 8 dias"
+  name    = "[${var.projeto}] Nenhuma execução com sucesso em 7 dias"
   type    = "query alert"
-  query   = "sum(last_1w):sum:aws.states.executions_succeeded{${local.dd_tag_pipeline}}.as_count() < 1"
+  query   = "sum(last_1w):default_zero(sum:aws.states.executions_succeeded{${local.dd_tag_pipeline}}.as_count()) < 1"
   message = <<-EOT
     O pipeline não conclui com sucesso há mais de uma semana.
     Verifique o agendamento no EventBridge Scheduler e as últimas execuções.
@@ -47,9 +47,8 @@ resource "datadog_monitor" "pipeline_sem_sucesso" {
   monitor_thresholds {
     critical = 1
   }
-  notify_no_data    = true
-  no_data_timeframe = 11520 # 8 dias, em minutos
-  tags              = local.dd_tags_monitores
+  notify_no_data = false
+  tags           = local.dd_tags_monitores
 }
 
 resource "datadog_monitor" "ingestao_erros" {
