@@ -12,5 +12,5 @@ output "athena_workgroup" {
 
 output "comando_executar_agora" {
   description = "Dispara o pipeline manualmente (útil para o primeiro teste)."
-  value       = "aws stepfunctions start-execution --state-machine-arn ${aws_sfn_state_machine.pipeline.arn} --input '{}'"
+  value       = "aws stepfunctions start-execution --state-machine-arn ${aws_sfn_state_machine.pipeline.arn}"
 }
