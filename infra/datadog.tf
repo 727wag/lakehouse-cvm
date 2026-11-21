@@ -47,6 +47,9 @@ resource "datadog_monitor" "pipeline_sem_sucesso" {
   monitor_thresholds {
     critical = 1
   }
+  # Sem execuções, a métrica fica sem dados. O default_zero() trata a ausência
+  # como 0, então o próprio alerta "< 1" dispara, sem depender de no_data
+  # (o Datadog limita o no_data_timeframe a 3 dias, menos que o ciclo semanal).
   notify_no_data = false
   tags           = local.dd_tags_monitores
 }
@@ -67,45 +70,132 @@ resource "datadog_monitor" "ingestao_erros" {
   tags = local.dd_tags_monitores
 }
 
+# Layout fixo (grade de 12 colunas): cada widget tem posição e tamanho
+# definidos em "layout", então dá pra redimensionar e arrastar na interface.
+locals {
+  dd_ultima_semana = { live_span = "1w" }
+  dd_cabecalho     = <<-EOT
+    ## Lakehouse CVM 🏦
+    Pipeline de dados com as demonstrações trimestrais das empresas abertas (CVM).
+
+    **Fluxo:** Lambda (ingestão) → Glue PySpark (SOT em Iceberg) → Athena (SPEC) → checagem de qualidade
+
+    **Agenda:** toda segunda, 7h (EventBridge + Step Functions) · [Repositório no GitHub](https://github.com/727wag/lakehouse-cvm)
+  EOT
+}
+
 resource "datadog_dashboard_json" "pipeline" {
   count = local.dd_count
   dashboard = jsonencode({
     title       = "Lakehouse CVM: saúde do pipeline"
     description = "Execuções, falhas e duração das etapas. Gerenciado pelo Terraform."
     layout_type = "ordered"
+    reflow_type = "fixed"
     widgets = [
       {
         definition = {
+          type             = "note"
+          content          = local.dd_cabecalho
+          background_color = "blue"
+          font_size        = "14"
+          text_align       = "left"
+          vertical_align   = "top"
+          has_padding      = true
+          show_tick        = false
+        }
+        layout = { x = 0, y = 0, width = 12, height = 2 }
+      },
+      {
+        definition = {
+          type      = "query_value"
+          title     = "Execuções com sucesso (7 dias)"
+          time      = local.dd_ultima_semana
+          precision = 0
+          requests  = [{ q = "sum:aws.states.executions_succeeded{${local.dd_tag_pipeline}}.as_count()", aggregator = "sum" }]
+        }
+        layout = { x = 0, y = 2, width = 3, height = 2 }
+      },
+      {
+        definition = {
+          type      = "query_value"
+          title     = "Falhas (7 dias)"
+          time      = local.dd_ultima_semana
+          precision = 0
+          requests = [{
+            q          = "sum:aws.states.executions_failed{${local.dd_tag_pipeline}}.as_count()"
+            aggregator = "sum"
+            conditional_formats = [
+              { comparator = ">", value = 0, palette = "white_on_red" },
+              { comparator = "<=", value = 0, palette = "white_on_green" }
+            ]
+          }]
+        }
+        layout = { x = 3, y = 2, width = 3, height = 2 }
+      },
+      {
+        definition = {
+          type      = "query_value"
+          title     = "Duração média do pipeline"
+          time      = local.dd_ultima_semana
+          precision = 1
+          autoscale = true
+          requests  = [{ q = "avg:aws.states.execution_time{${local.dd_tag_pipeline}}", aggregator = "avg" }]
+        }
+        layout = { x = 6, y = 2, width = 3, height = 2 }
+      },
+      {
+        definition = {
+          type      = "query_value"
+          title     = "Duração média da ingestão"
+          time      = local.dd_ultima_semana
+          precision = 1
+          autoscale = true
+          requests  = [{ q = "avg:aws.lambda.duration{${local.dd_tag_ingestao}}", aggregator = "avg" }]
+        }
+        layout = { x = 9, y = 2, width = 3, height = 2 }
+      },
+      {
+        definition = {
           type  = "timeseries"
-          title = "Execuções da Step Function"
+          title = "Execuções por dia"
+          time  = local.dd_ultima_semana
           requests = [
-            { q = "sum:aws.states.executions_succeeded{${local.dd_tag_pipeline}}.as_count()", display_type = "bars" },
-            { q = "sum:aws.states.executions_failed{${local.dd_tag_pipeline}}.as_count()", display_type = "bars" }
+            {
+              q            = "sum:aws.states.executions_succeeded{${local.dd_tag_pipeline}}.as_count().rollup(sum, 86400)"
+              display_type = "bars"
+              style        = { palette = "cool" }
+            },
+            {
+              q            = "sum:aws.states.executions_failed{${local.dd_tag_pipeline}}.as_count().rollup(sum, 86400)"
+              display_type = "bars"
+              style        = { palette = "warm" }
+            }
           ]
         }
+        layout = { x = 0, y = 4, width = 6, height = 3 }
       },
       {
         definition = {
-          type     = "timeseries"
-          title    = "Duração da execução (ms)"
-          requests = [{ q = "avg:aws.states.execution_time{${local.dd_tag_pipeline}}", display_type = "line" }]
+          type  = "timeseries"
+          title = "Duração das etapas"
+          time  = local.dd_ultima_semana
+          requests = [
+            { q = "avg:aws.states.execution_time{${local.dd_tag_pipeline}}", display_type = "line", style = { palette = "purple" } },
+            { q = "avg:aws.lambda.duration{${local.dd_tag_ingestao}}", display_type = "line", style = { palette = "orange" } }
+          ]
         }
+        layout = { x = 6, y = 4, width = 6, height = 3 }
       },
       {
         definition = {
-          type     = "timeseries"
-          title    = "Duração da ingestão (ms)"
-          requests = [{ q = "avg:aws.lambda.duration{${local.dd_tag_ingestao}}", display_type = "line" }]
+          type           = "manage_status"
+          title          = "Monitores do projeto"
+          query          = "tag:(projeto:${var.projeto})"
+          sort           = "status,asc"
+          summary_type   = "monitors"
+          display_format = "countsAndList"
         }
-      },
-      {
-        definition = {
-          type         = "manage_status"
-          title        = "Monitores do projeto"
-          query        = "tag:(projeto:${var.projeto})"
-          sort         = "status,asc"
-          summary_type = "monitors"
-        }
+        layout = { x = 0, y = 7, width = 12, height = 3 }
       }
     ]
   })
